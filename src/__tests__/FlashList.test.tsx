@@ -1,13 +1,19 @@
 import React, { useEffect } from "react";
-import { ScrollView, Text } from "react-native";
+import { Animated, ScrollView, Text, View } from "react-native";
 import "@quilted/react-testing/matchers";
 import { ProgressiveListView } from "recyclerlistview";
 
 import Warnings from "../errors/Warnings";
 import AutoLayoutView from "../native/auto-layout/AutoLayoutView";
 import CellContainer from "../native/cell-container/CellContainer";
+import { ListRenderItemInfo, RenderTargetOptions } from "../FlashListProps";
 
 import { mountFlashList } from "./helpers/mountFlashList";
+
+jest.mock("../native/cell-container/CellContainer", () => {
+  return jest.requireActual("../native/cell-container/CellContainer.ios.ts")
+    .default;
+});
 
 describe("FlashList", () => {
   beforeEach(() => {
@@ -545,6 +551,121 @@ describe("FlashList", () => {
     });
   });
 
+  it("retrigers viewability events when recomputeViewableItems is called", () => {
+    const onViewableItemsChanged = jest.fn();
+    const flashList = mountFlashList({
+      estimatedItemSize: 300,
+      onViewableItemsChanged,
+      viewabilityConfig: {
+        itemVisiblePercentThreshold: 50,
+        minimumViewTime: 0,
+      },
+    });
+
+    // Initial viewable items
+    expect(onViewableItemsChanged).toHaveBeenCalledWith({
+      changed: [
+        {
+          index: 0,
+          isViewable: true,
+          item: "One",
+          key: "0",
+          timestamp: expect.any(Number),
+        },
+        {
+          index: 1,
+          isViewable: true,
+          item: "Two",
+          key: "1",
+          timestamp: expect.any(Number),
+        },
+        {
+          index: 2,
+          isViewable: true,
+          item: "Three",
+          key: "2",
+          timestamp: expect.any(Number),
+        },
+      ],
+      viewableItems: [
+        {
+          index: 0,
+          isViewable: true,
+          item: "One",
+          key: "0",
+          timestamp: expect.any(Number),
+        },
+        {
+          index: 1,
+          isViewable: true,
+          item: "Two",
+          key: "1",
+          timestamp: expect.any(Number),
+        },
+        {
+          index: 2,
+          isViewable: true,
+          item: "Three",
+          key: "2",
+          timestamp: expect.any(Number),
+        },
+      ],
+    });
+
+    onViewableItemsChanged.mockClear();
+
+    flashList.instance.recomputeViewableItems();
+
+    expect(onViewableItemsChanged).toHaveBeenCalledWith({
+      changed: [
+        {
+          index: 0,
+          isViewable: true,
+          item: "One",
+          key: "0",
+          timestamp: expect.any(Number),
+        },
+        {
+          index: 1,
+          isViewable: true,
+          item: "Two",
+          key: "1",
+          timestamp: expect.any(Number),
+        },
+        {
+          index: 2,
+          isViewable: true,
+          item: "Three",
+          key: "2",
+          timestamp: expect.any(Number),
+        },
+      ],
+      viewableItems: [
+        {
+          index: 0,
+          isViewable: true,
+          item: "One",
+          key: "0",
+          timestamp: expect.any(Number),
+        },
+        {
+          index: 1,
+          isViewable: true,
+          item: "Two",
+          key: "1",
+          timestamp: expect.any(Number),
+        },
+        {
+          index: 2,
+          isViewable: true,
+          item: "Three",
+          key: "2",
+          timestamp: expect.any(Number),
+        },
+      ],
+    });
+  });
+
   it("should not overlap header with sitcky index 0", () => {
     const HeaderComponent = () => {
       return <Text>Empty</Text>;
@@ -600,7 +721,9 @@ describe("FlashList", () => {
 
     // items widths before layout manager change should be 400
     flashList.findAll(CellContainer).forEach((cell) => {
-      expect(cell.instance.props.style.width).toBe(400);
+      if (cell.props.index !== -1) {
+        expect(cell.instance.props.style.width).toBe(400);
+      }
     });
 
     // This will cause a layout manager change
@@ -613,7 +736,9 @@ describe("FlashList", () => {
 
     // items widths after layout manager change should be 900
     flashList.findAll(CellContainer).forEach((cell) => {
-      expect(cell.instance.props.style.width).toBe(900);
+      if (cell.props.index !== -1) {
+        expect(cell.instance.props.style.width).toBe(900);
+      }
     });
 
     flashList.unmount();
@@ -712,6 +837,31 @@ describe("FlashList", () => {
     ).toBe(250);
     flashList.unmount();
   });
+  it("forwards correct renderTarget", () => {
+    const renderItem = ({ target }: ListRenderItemInfo<string>) => {
+      return <Text>{target}</Text>;
+    };
+    const flashList = mountFlashList({
+      data: ["0"],
+      stickyHeaderIndices: [0],
+      renderItem,
+    });
+    expect(flashList.find(Animated.View)?.find(Text)?.props.children).toBe(
+      RenderTargetOptions.StickyHeader
+    );
+    expect(flashList.find(View)?.find(Text)?.props.children).toBe(
+      RenderTargetOptions.Cell
+    );
+    const flashListHorizontal = mountFlashList({
+      renderItem,
+      horizontal: true,
+    });
+    expect(
+      flashListHorizontal
+        .findAllWhere((node: any) => node?.props?.style?.opacity === 0)[0]
+        .find(Text)?.props.children
+    ).toBe("Measurement");
+  });
   it("force updates items only when renderItem change", () => {
     const renderItem = jest.fn(() => <Text>Test</Text>);
     const flashList = mountFlashList({
@@ -734,5 +884,118 @@ describe("FlashList", () => {
     );
     flashList.setProps({ disableAutoLayout: true });
     expect(flashList.find(AutoLayoutView)?.props.disableAutoLayout).toBe(true);
+  });
+  it("computes correct scrollTo offset when view position is specified", () => {
+    const flashList = mountFlashList({
+      data: new Array(40).fill(1).map((_, index) => {
+        return index.toString();
+      }),
+    });
+    const plv = flashList.find(ProgressiveListView)
+      ?.instance as ProgressiveListView;
+    const scrollToOffset = jest.spyOn(plv, "scrollToOffset");
+    flashList.instance.scrollToIndex({ index: 10, viewPosition: 0.5 });
+
+    // Each item is 200px in height and to position it in the middle of the window (900 x 400), its offset needs to be
+    // reduced by 350px. That gives us 1650. Other test cases follow the same logic.
+    expect(scrollToOffset).toBeCalledWith(1650, 1650, false, true);
+    flashList.instance.scrollToItem({
+      item: "10",
+      viewPosition: 0.5,
+    });
+    expect(scrollToOffset).toBeCalledWith(1650, 1650, false, true);
+    flashList.setProps({ horizontal: true });
+    flashList.instance.scrollToItem({
+      item: "10",
+      viewPosition: 0.5,
+    });
+    expect(scrollToOffset).toBeCalledWith(1900, 1900, false, true);
+    flashList.unmount();
+  });
+  it("computes correct scrollTo offset when view offset is specified", () => {
+    const flashList = mountFlashList({
+      data: new Array(40).fill(1).map((_, index) => {
+        return index.toString();
+      }),
+    });
+    const plv = flashList.find(ProgressiveListView)
+      ?.instance as ProgressiveListView;
+    const scrollToOffset = jest.spyOn(plv, "scrollToOffset");
+
+    // Each item is 200px in height and to position it in the middle of the window (900 x 400), it's offset needs to be
+    // reduced by 350px + 100px offset. That gives us 1550. Other test cases follow the same logic.
+    flashList.instance.scrollToIndex({
+      index: 10,
+      viewPosition: 0.5,
+      viewOffset: 100,
+    });
+    expect(scrollToOffset).toBeCalledWith(1550, 1550, false, true);
+    flashList.setProps({ horizontal: true });
+    flashList.instance.scrollToItem({
+      item: "10",
+      viewPosition: 0.5,
+      viewOffset: 100,
+    });
+    expect(scrollToOffset).toBeCalledWith(1800, 1800, false, true);
+    flashList.unmount();
+  });
+  it("applies horizontal content container padding for vertical list", () => {
+    const flashList = mountFlashList({
+      numColumns: 4,
+      contentContainerStyle: { paddingHorizontal: 10 },
+    });
+    let hasLayoutItems = false;
+    flashList.instance.state.layoutProvider
+      .getLayoutManager()!
+      .getLayouts()
+      .forEach((layout) => {
+        hasLayoutItems = true;
+        expect(layout.width).toBe(95);
+      });
+    expect(hasLayoutItems).toBe(true);
+    flashList.unmount();
+  });
+  it("applies vertical content container padding for horizontal list", () => {
+    const flashList = mountFlashList({
+      horizontal: true,
+      contentContainerStyle: { paddingVertical: 10 },
+    });
+    let hasLayoutItems = false;
+    flashList.instance.state.layoutProvider
+      .getLayoutManager()!
+      .getLayouts()
+      .forEach((layout) => {
+        hasLayoutItems = true;
+        expect(layout.height).toBe(880);
+      });
+    expect(hasLayoutItems).toBe(true);
+    flashList.unmount();
+  });
+  it("warns if rendered size is too small but only when it remain small for a duration", () => {
+    const flashList = mountFlashList({
+      data: new Array(1).fill("1"),
+    });
+    const warn = jest.spyOn(console, "warn").mockReturnValue();
+
+    const triggerLayout = (height: number, time: number) => {
+      flashList.find(ScrollView)?.trigger("onLayout", {
+        nativeEvent: { layout: { height, width: 900 } },
+      });
+      jest.advanceTimersByTime(time);
+    };
+
+    triggerLayout(0, 500);
+    triggerLayout(100, 1000);
+    triggerLayout(0, 1200);
+
+    expect(warn).toHaveBeenCalledTimes(1);
+
+    triggerLayout(100, 500);
+    triggerLayout(0, 500);
+
+    flashList.unmount();
+    jest.advanceTimersByTime(1200);
+
+    expect(warn).toHaveBeenCalledTimes(1);
   });
 });

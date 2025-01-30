@@ -1,10 +1,10 @@
+import type React from "react";
 import {
   StyleProp,
   ScrollViewProps,
   ViewabilityConfig,
   ViewabilityConfigCallbackPairs,
   ViewStyle,
-  ColorValue,
 } from "react-native";
 
 import { BlankAreaEventHandler } from "./native/auto-layout/AutoLayoutView";
@@ -12,24 +12,40 @@ import ViewToken from "./viewability/ViewToken";
 
 export interface ListRenderItemInfo<TItem> {
   item: TItem;
-
   index: number;
+  /**
+   * FlashList may render your items for multiple reasons.
+   * Cell - This is for your list item
+   * Measurement - Might be invoked for size measurement and won't be visible. You can ignore this in analytics.
+   * StickyHeader - This is for your sticky header. Use this to change your item's appearance while it's being used as a sticky header.
+   */
+  target: RenderTarget;
+  extraData?: any;
 }
+
+export type RenderTarget = "Cell" | "StickyHeader" | "Measurement";
+
+export const RenderTargetOptions: Record<string, RenderTarget> = {
+  Cell: "Cell",
+  StickyHeader: "StickyHeader",
+  Measurement: "Measurement",
+};
 
 export type ListRenderItem<TItem> = (
   info: ListRenderItemInfo<TItem>
 ) => React.ReactElement | null;
 
-export interface ContentStyle {
-  backgroundColor?: ColorValue;
-  paddingTop?: string | number;
-  paddingLeft?: string | number;
-  paddingRight?: string | number;
-  paddingBottom?: string | number;
-  padding?: string | number;
-  paddingVertical?: string | number;
-  paddingHorizontal?: string | number;
-}
+export type ContentStyle = Pick<
+  ViewStyle,
+  | "backgroundColor"
+  | "paddingTop"
+  | "paddingLeft"
+  | "paddingRight"
+  | "paddingBottom"
+  | "padding"
+  | "paddingVertical"
+  | "paddingHorizontal"
+>;
 
 export interface FlashListProps<TItem> extends ScrollViewProps {
   /**
@@ -40,6 +56,7 @@ export interface FlashListProps<TItem> extends ScrollViewProps {
    * );
    * ...
    * <FlashList data={[{title: 'Title Text', key: 'item1'}]} renderItem={renderItem} />
+   * ```
    *
    * Provides additional metadata like `index`
    *
@@ -123,9 +140,15 @@ export interface FlashListProps<TItem> extends ScrollViewProps {
   ListHeaderComponentStyle?: StyleProp<ViewStyle> | undefined;
 
   /**
+   * Rendered as the main scrollview.
+   */
+  renderScrollComponent?:
+    | React.ComponentType<ScrollViewProps>
+    | React.FC<ScrollViewProps>;
+
+  /**
    * You can use `contentContainerStyle` to apply padding that will be applied to the whole content itself.
    * For example, you can apply this padding, so that all of your items have leading and trailing space.
-   * Note: horizontal padding is ignored on vertical lists and vertical padding on horizontal ones.
    */
   contentContainerStyle?: ContentStyle;
 
@@ -172,7 +195,7 @@ export interface FlashListProps<TItem> extends ScrollViewProps {
   /**
    * Used to extract a unique key for a given item at the specified index.
    * Key is used for optimizing performance. Defining `keyExtractor` is also necessary
-   * when doing [layout animations](https://flash-list.docs.shopify.io/guides/layout-animation)
+   * when doing [layout animations](https://shopify.github.io/flash-list/docs/guides/layout-animation)
    * to uniquely identify animated components.
    */
   keyExtractor?: ((item: TItem, index: number) => string) | undefined;

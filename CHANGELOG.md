@@ -7,6 +7,152 @@ and adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.7.3] - 2025-01-30
+
+- Changes for RN 0.77 support
+  - https://github.com/Shopify/flash-list/pull/1484
+
+## [1.7.2] - 2024-11-07
+
+- Update sticky headers when data changes without changing stickyHeaderIndices updated
+  - https://github.com/Shopify/flash-list/pull/1267
+
+## [1.7.1] - 2024-08-07
+
+- Add recomputeViewableItems method
+  - https://github.com/Shopify/flash-list/pull/1296
+- Fix first sticky header is not rendering when data changed
+  - https://github.com/Shopify/flash-list/issues/814
+
+## [1.7.0] - 2024-07-03
+
+- Update internal dependency and fixture app to `react-native@0.72`.
+  - https://github.com/Shopify/flash-list/pull/1076
+- Fix stale reference to onScroll and onLoad
+  - https://github.com/Shopify/flash-list/pull/1112
+- Fix Android RN 0.73 namespace requirement
+  - https://github.com/Shopify/flash-list/pull/1216
+- New architecture support
+  - https://github.com/Shopify/flash-list/pull/550
+- Upgrade recyclerlistview to v4.2.1
+  - https://github.com/Shopify/flash-list/pull/1236
+
+## [1.6.4] - 2024-03-18
+
+- Fix `ItemSeparatorComponent ` position for the `inverted` flashlist
+  - https://github.com/Shopify/flash-list/pull/1046
+- Do not show render size unsuable warning in better layout changes
+  - https://github.com/Shopify/flash-list/pull/1092
+
+## [1.6.3] - 2023-11-09
+
+- Changes for RN 0.73 support
+  - https://github.com/Shopify/flash-list/pull/930
+
+## [1.6.2] - 2023-10-19
+
+- Move shouldRefreshWithAnchoring configuration so it is possible to disable it from outside FlashList by invalidating layout
+  - https://github.com/Shopify/flash-list/pull/935
+
+## [1.6.1] - 2023-09-14
+
+- Prevent an expired layout provider from being used again
+  - https://github.com/Shopify/flash-list/pull/915
+
+## [1.6.0] - 2023-09-13
+
+- Update types to match `react-native@0.72` view types.
+  - https://github.com/Shopify/flash-list/pull/890
+- Add option to clear cached layouts on update
+  - https://github.com/Shopify/flash-list/pull/910
+
+## [1.5.0] - 2023-07-12
+
+- Update kotlin version to 1.8.10 for RN 0.72 compatibility
+  - https://github.com/Shopify/flash-list/pull/865
+
+## [1.4.3] - 2023-04-24
+
+- Fix definition conflicts with previous value
+  - https://github.com/Shopify/flash-list/pull/795
+- Fix Android unit test
+  - https://github.com/Shopify/flash-list/pull/815
+- Fix performance issues with inverted lists on Android
+  - https://github.com/Shopify/flash-list/pull/819
+
+## [1.4.2] - 2023-03-20
+
+- Apply layout correction only to consecutive cells
+  - https://github.com/Shopify/flash-list/pull/788
+
+## [1.4.1] - 2023-01-24
+
+- Prevent overflow of sticky headers
+  - https://github.com/Shopify/flash-list/pull/714
+- Skip footer correction when layout correction is skipped
+  - https://github.com/Shopify/flash-list/pull/743
+
+## [1.4.0] - 2022-11-07
+
+- Add content padding support to FlashList
+  - https://github.com/Shopify/flash-list/pull/626
+- Upgrade recyclerlistview to v4.2.0
+  - https://github.com/Shopify/flash-list/pull/660
+
+## [1.3.1] - 2022-10-11
+
+- Expose `columnIndex` and `columnSpan` to `MasonryFlashList.renderItem`
+  - https://github.com/Shopify/flash-list/pull/625
+
+## [1.3.0] - 2022-09-26
+
+- Added `MasonryFlashList` which adds support for rendering masonry layouts
+  - https://github.com/Shopify/flash-list/pull/587
+
+## [1.2.2] - 2022-09-06
+
+- Fixes type checking error in `AutoLayoutView` due to `children` not being an explicit type
+  - https://github.com/Shopify/flash-list/pull/567
+
+## [1.2.1] - 2022-08-03
+
+- Fixed crash when `estimatedListSize` is used in an empty list
+  - https://github.com/Shopify/flash-list/pull/546
+
+## [1.2.0] - 2022-07-18
+
+- Fixed out of bound read from data
+  - https://github.com/Shopify/flash-list/pull/523
+- Added JS only fallbacks for unsupported platforms
+  - https://github.com/Shopify/flash-list/pull/518
+- Added footer correction in AutoLayoutView
+  - https://github.com/Shopify/flash-list/pull/519
+- Added `viewPosition` and `viewOffset` support scrollTo methods
+  - https://github.com/Shopify/flash-list/pull/521
+- Fix inverted mode while being horizontal
+  - https://github.com/Shopify/flash-list/pull/520
+- Upgrade recyclerlistview to v4.1.1
+  - https://github.com/Shopify/flash-list/pull/526
+
+## [1.1.0] - 2022-07-06
+
+- Added render target info to `renderItem` callback
+  - https://github.com/Shopify/flash-list/pull/454
+- Add Apple TV support
+  - https://github.com/Shopify/flash-list/pull/511
+- Clarify installation instructions in Expo projects
+  - https://github.com/Shopify/flash-list/pull/497
+- Upgrade recyclerlistview to v4.0.1
+  - https://github.com/Shopify/flash-list/pull/507
+- Add tslib as a dependency
+  - https://github.com/Shopify/flash-list/pull/514
+
+## [1.0.4] - 2022-07-02
+
+- Build fix for Android projects having `kotlinVersion` defined in `build.gradle`.
+- Allow providing an external scrollview.
+  - https://github.com/Shopify/flash-list/pull/502
+
 ## [1.0.3] - 2022-07-01
 
 - Add kotlin-gradle-plugin to buildscript in project build.gradle

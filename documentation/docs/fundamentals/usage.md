@@ -36,8 +36,9 @@ To avoid common pitfalls, you can also follow these steps for migrating from `Fl
 
 1. Switch from `FlatList` to `FlashList` and render the list once. You should see a warning about missing `estimatedItemSize` and a suggestion. Set this value as the prop directly.
 2. **Important**: Scan your [`renderItem`](#renderitem) hierarchy for explicit `key` prop definitions and remove them. If you’re doing a `.map()` use indices as keys.
-3. If your list has heterogenous views, pass their types to `FlashList` using [`getItemType`](#getitemtype) prop to improve performance.
-4. Do not test performance with JS dev mode on. Make sure you’re in release mode. `FlashList` can appear slower while in dev mode due to a small render buffer.
+3. Check your [`renderItem`](#renderitem) hierarchy for components that make use of `useState` and verify whether that state would need to be reset if a different item is passed to that component (see [Recycling](https://shopify.github.io/flash-list/docs/recycling))
+4. If your list has heterogenous views, pass their types to `FlashList` using [`getItemType`](#getitemtype) prop to improve performance.
+5. Do not test performance with JS dev mode on. Make sure you’re in release mode. `FlashList` can appear slower while in dev mode due to a small render buffer.
 
 :::note `estimatedItemSize`
 [`estimatedItemSize`](#estimateditemsize) is necessary to achieve optimal performance.
@@ -56,7 +57,7 @@ Required
 :::
 
 ```tsx
-renderItem: ({ item, index }) => void;
+renderItem: ({ item, index, target, extraData }) => void;
 ```
 
 Takes an item from `data` and renders it into the list. Typical usage:
@@ -73,6 +74,11 @@ Provides additional metadata like `index`
 
 - `item` (`Object`): The item from `data` being rendered.
 - `index` (`number`): The index corresponding to this item in the `data` array.
+- `target` (`string`) FlashList may render your items for multiple reasons.
+  - `Cell` - This is for your list item.
+  - `Measurement` - Might be invoked for size measurement and won't be visible. You can ignore this in analytics.
+  - `StickyHeader` - This is for your sticky header. Use this to change your item's appearance while it's being used as a sticky header.
+- `extraData` (`Object`) - This is the same `extraData` prop that was passed to `FlashList`.
 
 ### **`data`**
 
@@ -186,23 +192,20 @@ ListHeaderComponentStyle?: StyleProp<ViewStyle>;
 ```tsx
 contentContainerStyle?: ContentStyle;
 
-interface ContentStyle {
-  backgroundColor?: ColorValue;
-  paddingTop?: string | number;
-  paddingLeft?: string | number;
-  paddingRight?: string | number;
-  paddingBottom?: string | number;
-  padding?: string | number;
-  paddingVertical?: string | number;
-  paddingHorizontal?: string | number;
-}
+export type ContentStyle = Pick<
+  ViewStyle,
+  | "backgroundColor"
+  | "paddingTop"
+  | "paddingLeft"
+  | "paddingRight"
+  | "paddingBottom"
+  | "padding"
+  | "paddingVertical"
+  | "paddingHorizontal"
+>;
 ```
 
 You can use `contentContainerStyle` to apply padding that will be applied to the whole content itself. For example, you can apply this padding, so that all of your items have leading and trailing space.
-
-:::note
-Horizontal padding is ignored on vertical lists and vertical padding on horizontal ones.
-:::
 
 ### `disableAutoLayout`
 
@@ -448,6 +451,18 @@ refreshing?: boolean;
 
 Set this true while waiting for new data from a refresh.
 
+### `renderScrollComponent`
+
+```tsx
+import type { ScrollViewProps } from "react-native";
+
+renderScrollComponent?:
+    | React.ComponentType<ScrollViewProps>
+    | React.FC<ScrollViewProps>;
+```
+
+Rendered as the main scrollview.
+
 ### `viewabilityConfig`
 
 ```tsx
@@ -534,6 +549,14 @@ recordInteraction();
 
 Tells the list an interaction has occurred, which should trigger viewability calculations, e.g. if `waitForInteractions` is true and the user has not scrolled. You should typically call `recordInteraction()` when user for example taps on an item or invokes a navigation action.
 
+### `recomputeViewableItems()`
+
+```tsx
+recomputeViewableItems();
+```
+
+Retriggers viewability calculations. Useful to imperatively trigger viewability calculations.
+
 ### `scrollToEnd()`
 
 ```tsx
@@ -580,7 +603,7 @@ Scroll to a specific content pixel offset in the list.
 
 Param `offset` expects the offset to scroll to. In case of `horizontal` is true, the offset is the x-value, in any other case the offset is the y-value.
 
-Param `animated` (`true` by default) defines whether the list should do an animation while scrolling.
+Param `animated` (`false` by default) defines whether the list should do an animation while scrolling.
 
 # ScrollView props
 
@@ -594,7 +617,6 @@ The following props from `FlatList` are currently not implemented:
 - [`debug`](https://reactnative.dev/docs/virtualizedlist#debug)
 - [`listKey`](https://reactnative.dev/docs/virtualizedlist#listkey)
 - [`onScrollToIndexFailed`](https://reactnative.dev/docs/virtualizedlist#onscrolltoindexfailed)
-- [`renderScrollComponent`](https://reactnative.dev/docs/virtualizedlist#renderscrollcomponent)
 - [`windowSize`](https://reactnative.dev/docs/virtualizedlist#windowsize)
 
 Unsupported methods:
@@ -603,7 +625,6 @@ Unsupported methods:
 - [`hasMore`](https://reactnative.dev/docs/virtualizedlist#hasmore)
 - [`getChildContext`](https://reactnative.dev/docs/virtualizedlist#getchildcontext)
 - [`getNativeScrollRef()`​](https://reactnative.dev/docs/flatlist#getnativescrollref)
-- [`getScrollableNode`](https://reactnative.dev/docs/virtualizedlist#getscrollablenode)
 - [`getScrollRef`](https://reactnative.dev/docs/virtualizedlist#getscrollref)
 - [`getScrollResponder()`](https://reactnative.dev/docs/flatlist#getscrollresponder)
 

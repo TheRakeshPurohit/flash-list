@@ -16,6 +16,10 @@ Swap from FlatList in seconds. Get instant performance.
 
 </div>
 
+## React Native's new architecture support
+
+FlashList is compatible with React Native's new architecture however, it's not fully optimized for it yet. You will still gain performance benefits from using FlashList over FlatList. Stayed tuned for more improvements.
+
 ## Installation
 
 Add the package to your project via `yarn add @shopify/flash-list` and run `pod install` in the `ios` directory.
@@ -55,8 +59,9 @@ To avoid common pitfalls, you can also follow these steps for migrating from `Fl
 
 1. Switch from `FlatList` to `FlashList` and render the list once. You should see a warning about missing `estimatedItemSize` and a suggestion. Set this value as the prop directly.
 2. **Important**: Scan your [`renderItem`](https://shopify.github.io/flash-list/docs/usage/#renderitem) hierarchy for explicit `key` prop definitions and remove them. If you’re doing a `.map()` use indices as keys.
-3. If your list has heterogenous views, pass their types to `FlashList` using [`getItemType`](https://shopify.github.io/flash-list/docs/usage/#getitemtype) prop to improve performance.
-4. Do not test performance with JS dev mode on. Make sure you’re in release mode. `FlashList` can appear slower while in dev mode due to a small render buffer.
+3. Check your [`renderItem`](https://shopify.github.io/flash-list/docs/usage/#renderitem) hierarchy for components that make use of `useState` and verify whether that state would need to be reset if a different item is passed to that component (see [Recycling](https://shopify.github.io/flash-list/docs/recycling))
+4. If your list has heterogenous views, pass their types to `FlashList` using [`getItemType`](https://shopify.github.io/flash-list/docs/usage/#getitemtype) prop to improve performance.
+5. Do not test performance with JS dev mode on. Make sure you’re in release mode. `FlashList` can appear slower while in dev mode due to a small render buffer.
 
 ## App / Playground
 

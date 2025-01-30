@@ -3,8 +3,8 @@ import {
   View,
   RefreshControl,
   LayoutChangeEvent,
-  ViewStyle,
   NativeSyntheticEvent,
+  StyleSheet,
   NativeScrollEvent,
 } from "react-native";
 import {
@@ -25,12 +25,23 @@ import CustomError from "./errors/CustomError";
 import ExceptionList from "./errors/ExceptionList";
 import WarningList from "./errors/Warnings";
 import ViewabilityManager from "./viewability/ViewabilityManager";
-import { FlashListProps, ContentStyle } from "./FlashListProps";
+import {
+  FlashListProps,
+  RenderTarget,
+  RenderTargetOptions,
+} from "./FlashListProps";
 import {
   getCellContainerPlatformStyles,
+  getFooterContainer,
   getItemAnimator,
   PlatformConfig,
-} from "./utils/PlatformHelper";
+} from "./native/config/PlatformHelper";
+import {
+  ContentStyleExplicit,
+  getContentContainerPadding,
+  hasUnsupportedKeysInContentContainerStyle,
+  updateContentStyle,
+} from "./utils/ContentContainerUtils";
 
 interface StickyProps extends StickyContainerProps {
   children: any;
@@ -58,9 +69,18 @@ class FlashList<T> extends React.PureComponent<
   private rlvRef?: RecyclerListView<RecyclerListViewProps, any>;
   private stickyContentContainerRef?: PureComponentWrapper;
   private listFixedDimensionSize = 0;
-  private transformStyle = { transform: [{ scaleY: -1 }] };
+  private transformStyle = PlatformConfig.invertedTransformStyle;
+  private transformStyleHorizontal =
+    PlatformConfig.invertedTransformStyleHorizontal;
+
   private distanceFromWindow = 0;
-  private contentStyle: ContentStyle = {};
+  private contentStyle: ContentStyleExplicit = {
+    paddingBottom: 0,
+    paddingTop: 0,
+    paddingLeft: 0,
+    paddingRight: 0,
+  };
+
   private loadStartTime = 0;
   private isListLoaded = false;
   private windowCorrectionConfig: WindowCorrectionConfig = {
@@ -73,9 +93,9 @@ class FlashList<T> extends React.PureComponent<
     applyToInitialOffset: true,
   };
 
-  private emptyObject = {};
   private postLoadTimeoutId?: ReturnType<typeof setTimeout>;
-  private sizeWarningTimeoutId?: ReturnType<typeof setTimeout>;
+  private itemSizeWarningTimeoutId?: ReturnType<typeof setTimeout>;
+  private renderedSizeWarningTimeoutId?: ReturnType<typeof setTimeout>;
 
   private isEmptyList = false;
   private viewabilityManager: ViewabilityManager<T>;
@@ -121,21 +141,25 @@ class FlashList<T> extends React.PureComponent<
     }
 
     // `createAnimatedComponent` always passes a blank style object. To avoid warning while using AnimatedFlashList we've modified the check
-    if (Object.keys(this.props.style || {}).length > 0) {
+    // `style` prop can be an array. So we need to validate every object in array. Check: https://github.com/Shopify/flash-list/issues/651
+    if (
+      __DEV__ &&
+      Object.keys(StyleSheet.flatten(this.props.style ?? {})).length > 0
+    ) {
       console.warn(WarningList.styleUnsupported);
     }
-    const contentStyleInfo = this.getContentContainerInfo();
-    if (contentStyleInfo.unsupportedKeys) {
+    if (
+      hasUnsupportedKeysInContentContainerStyle(
+        this.props.contentContainerStyle
+      )
+    ) {
       console.warn(WarningList.styleContentContainerUnsupported);
-    }
-    if (contentStyleInfo.paddingIgnored) {
-      console.warn(WarningList.styleUnsupportedPaddingType);
     }
   }
 
   // Some of the state variables need to update when props change
   static getDerivedStateFromProps<T>(
-    nextProps: FlashListProps<T>,
+    nextProps: Readonly<FlashListProps<T>>,
     prevState: FlashListState<T>
   ): FlashListState<T> {
     const newState = { ...prevState };
@@ -145,7 +169,19 @@ class FlashList<T> extends React.PureComponent<
         newState.numColumns,
         nextProps
       );
+    } else if (prevState.layoutProvider.updateProps(nextProps).hasExpired) {
+      newState.layoutProvider = FlashList.getLayoutProvider<T>(
+        newState.numColumns,
+        nextProps
+      );
     }
+
+    // RLV retries to reposition the first visible item on layout provider change.
+    // It's not required in our case so we're disabling it
+    newState.layoutProvider.shouldRefreshWithAnchoring = Boolean(
+      !prevState.layoutProvider?.hasExpired
+    );
+
     if (nextProps.data !== prevState.data) {
       newState.data = nextProps.data;
       newState.dataProvider = prevState.dataProvider.cloneWithRows(
@@ -159,7 +195,6 @@ class FlashList<T> extends React.PureComponent<
       newState.extraData = { value: nextProps.extraData };
     }
     newState.renderItem = nextProps.renderItem;
-    newState.layoutProvider.updateProps(nextProps);
     return newState;
   }
 
@@ -192,7 +227,7 @@ class FlashList<T> extends React.PureComponent<
   // Using only grid layout provider as it can also act as a listview, sizeProvider is a function to support future overrides
   private static getLayoutProvider<T>(
     numColumns: number,
-    props: FlashListProps<T>
+    flashListProps: FlashListProps<T>
   ) {
     return new GridLayoutProviderWithProps<T>(
       // max span or, total columns
@@ -228,7 +263,7 @@ class FlashList<T> extends React.PureComponent<
         );
         return mutableLayout?.size;
       },
-      props
+      flashListProps
     );
   }
 
@@ -257,14 +292,15 @@ class FlashList<T> extends React.PureComponent<
   componentWillUnmount() {
     this.viewabilityManager.dispose();
     this.clearPostLoadTimeout();
-    if (this.sizeWarningTimeoutId !== undefined) {
-      clearTimeout(this.sizeWarningTimeoutId);
+    this.clearRenderSizeWarningTimeout();
+    if (this.itemSizeWarningTimeoutId !== undefined) {
+      clearTimeout(this.itemSizeWarningTimeoutId);
     }
   }
 
   render() {
     this.isEmptyList = this.state.dataProvider.getSize() === 0;
-    this.contentStyle = this.getContentContainerInfo().style;
+    updateContentStyle(this.contentStyle, this.props.contentContainerStyle);
 
     const {
       drawDistance,
@@ -276,6 +312,7 @@ class FlashList<T> extends React.PureComponent<
       initialScrollIndex,
       style,
       contentContainerStyle,
+      renderScrollComponent,
       ...restProps
     } = this.props;
 
@@ -291,13 +328,13 @@ class FlashList<T> extends React.PureComponent<
 
     return (
       <StickyHeaderContainer
-        overrideRowRenderer={this.stickyRowRenderer}
+        overrideRowRenderer={this.stickyOverrideRowRenderer}
         applyWindowCorrection={this.applyWindowCorrection}
         stickyHeaderIndices={stickyHeaderIndices}
         style={
           this.props.horizontal
-            ? this.emptyObject
-            : { flex: 1, ...this.getTransform() }
+            ? { ...this.getTransform() }
+            : { flex: 1, overflow: "hidden", ...this.getTransform() }
         }
       >
         <ProgressiveListView
@@ -322,6 +359,8 @@ class FlashList<T> extends React.PureComponent<
               // Required to handle a scrollview bug. Check: https://github.com/Shopify/flash-list/pull/187
               minHeight: 1,
               minWidth: 1,
+
+              ...getContentContainerPadding(this.contentStyle, horizontal),
             },
             ...this.props.overrideProps,
           }}
@@ -350,6 +389,9 @@ class FlashList<T> extends React.PureComponent<
           windowCorrectionConfig={this.getUpdatedWindowCorrectionConfig()}
           itemAnimator={this.itemAnimator}
           suppressBoundedSizeException
+          externalScrollView={
+            renderScrollComponent as RecyclerListViewProps["externalScrollView"]
+          }
         />
       </StickyHeaderContainer>
     );
@@ -390,8 +432,11 @@ class FlashList<T> extends React.PureComponent<
 
   private validateListSize(event: LayoutChangeEvent) {
     const { height, width } = event.nativeEvent.layout;
+    this.clearRenderSizeWarningTimeout();
     if (Math.floor(height) <= 1 || Math.floor(width) <= 1) {
-      console.warn(WarningList.unusableRenderedSize);
+      this.renderedSizeWarningTimeoutId = setTimeout(() => {
+        console.warn(WarningList.unusableRenderedSize);
+      }, 1000);
     }
   }
 
@@ -417,7 +462,7 @@ class FlashList<T> extends React.PureComponent<
     return (
       <>
         <PureComponentWrapper
-          enabled={children.length > 0 || this.isEmptyList}
+          enabled={this.isListLoaded || children.length > 0 || this.isEmptyList}
           contentStyle={this.props.contentContainerStyle}
           horizontal={this.props.horizontal}
           header={this.props.ListHeaderComponent}
@@ -438,7 +483,7 @@ class FlashList<T> extends React.PureComponent<
           ? this.getValidComponent(this.props.ListEmptyComponent)
           : null}
         <PureComponentWrapper
-          enabled={children.length > 0 || this.isEmptyList}
+          enabled={this.isListLoaded || children.length > 0 || this.isEmptyList}
           contentStyle={this.props.contentContainerStyle}
           horizontal={this.props.horizontal}
           header={this.props.ListFooterComponent}
@@ -479,62 +524,37 @@ class FlashList<T> extends React.PureComponent<
   };
 
   private updateDistanceFromWindow = (event: LayoutChangeEvent) => {
-    this.distanceFromWindow = this.props.horizontal
+    const newDistanceFromWindow = this.props.horizontal
       ? event.nativeEvent.layout.x
       : event.nativeEvent.layout.y;
-    this.windowCorrectionConfig.value.windowShift = -this.distanceFromWindow;
+
+    if (this.distanceFromWindow !== newDistanceFromWindow) {
+      this.distanceFromWindow = newDistanceFromWindow;
+      this.windowCorrectionConfig.value.windowShift = -this.distanceFromWindow;
+      this.viewabilityManager.updateViewableItems();
+    }
   };
 
   private getTransform() {
-    return (this.props.inverted && this.transformStyle) || undefined;
-  }
-
-  private getContentContainerInfo() {
-    const {
-      paddingTop,
-      paddingRight,
-      paddingBottom,
-      paddingLeft,
-      padding,
-      paddingVertical,
-      paddingHorizontal,
-      backgroundColor,
-      ...rest
-    } = (this.props.contentContainerStyle || {}) as ViewStyle;
-    const unsupportedKeys = Object.keys(rest).length > 0;
-    if (this.props.horizontal) {
-      const paddingIgnored =
-        padding || paddingVertical || paddingTop || paddingBottom;
-      return {
-        style: {
-          paddingLeft: paddingLeft || paddingHorizontal || padding || 0,
-          paddingRight: paddingRight || paddingHorizontal || padding || 0,
-          backgroundColor,
-        },
-        unsupportedKeys,
-        paddingIgnored,
-      };
-    } else {
-      const paddingIgnored =
-        padding || paddingHorizontal || paddingLeft || paddingRight;
-      return {
-        style: {
-          paddingTop: paddingTop || paddingVertical || padding || 0,
-          paddingBottom: paddingBottom || paddingVertical || padding || 0,
-          backgroundColor,
-        },
-        unsupportedKeys,
-        paddingIgnored,
-      };
-    }
+    const transformStyle = this.props.horizontal
+      ? this.transformStyleHorizontal
+      : this.transformStyle;
+    return (this.props.inverted && transformStyle) || undefined;
   }
 
   private separator = (index: number) => {
-    const leadingItem = this.props.data?.[index];
-    const trailingItem = this.props.data?.[index + 1];
-    if (trailingItem === undefined) {
+    // Make sure we have data and don't read out of bounds
+    if (
+      this.props.data === null ||
+      this.props.data === undefined ||
+      index + 1 >= this.props.data.length
+    ) {
       return null;
     }
+
+    const leadingItem = this.props.data[index];
+    const trailingItem = this.props.data[index + 1];
+
     const props = {
       leadingItem,
       trailingItem,
@@ -565,13 +585,18 @@ class FlashList<T> extends React.PureComponent<
   };
 
   private footer = () => {
+    /** The web version of CellContainer uses a div directly which doesn't compose styles the way a View does.
+     * We will skip using CellContainer on web to avoid this issue. `getFooterContainer` on web will
+     * return a View. */
+    const FooterContainer = getFooterContainer() ?? CellContainer;
     return (
       <>
-        <View
+        <FooterContainer
+          index={-1}
           style={[this.props.ListFooterComponentStyle, this.getTransform()]}
         >
           {this.getValidComponent(this.props.ListFooterComponent)}
-        </View>
+        </FooterContainer>
         <View
           style={{
             paddingBottom: this.contentStyle.paddingBottom,
@@ -589,7 +614,8 @@ class FlashList<T> extends React.PureComponent<
       this.state.dataProvider.getSize() > 0 ? (
       <View style={{ opacity: 0 }} pointerEvents="none">
         {this.rowRendererWithIndex(
-          Math.min(this.state.dataProvider.getSize() - 1, 1)
+          Math.min(this.state.dataProvider.getSize() - 1, 1),
+          RenderTargetOptions.Measurement
         )}
       </View>
     ) : null;
@@ -615,13 +641,18 @@ class FlashList<T> extends React.PureComponent<
     this.stickyContentContainerRef?.setEnabled(this.isStickyEnabled);
   };
 
-  private rowRendererWithIndex = (index: number) => {
+  private rowRendererSticky = (index: number) => {
+    return this.rowRendererWithIndex(index, RenderTargetOptions.StickyHeader);
+  };
+
+  private rowRendererWithIndex = (index: number, target: RenderTarget) => {
     // known issue: expected to pass separators which isn't available in RLV
     return this.props.renderItem?.({
-      item: this.props.data?.[index],
+      item: this.props.data![index],
       index,
+      target,
       extraData: this.state.extraData?.value,
-    } as any) as JSX.Element;
+    }) as JSX.Element;
   };
 
   /**
@@ -636,6 +667,7 @@ class FlashList<T> extends React.PureComponent<
   private getCellContainerChild = (index: number) => {
     return (
       <>
+        {this.props.inverted ? this.separator(index) : null}
         <View
           style={{
             flexDirection:
@@ -644,9 +676,9 @@ class FlashList<T> extends React.PureComponent<
                 : "row",
           }}
         >
-          {this.rowRendererWithIndex(index)}
+          {this.rowRendererWithIndex(index, RenderTargetOptions.Cell)}
         </View>
-        {this.separator(index)}
+        {this.props.inverted ? null : this.separator(index)}
       </>
     );
   };
@@ -659,13 +691,20 @@ class FlashList<T> extends React.PureComponent<
     this.stickyContentContainerRef = ref;
   };
 
-  private stickyRowRenderer = (_: any, __: any, index: number, ___: any) => {
+  private stickyOverrideRowRenderer = (
+    _: any,
+    rowData: any,
+    index: number,
+    ___: any
+  ) => {
     return (
       <PureComponentWrapper
         ref={this.stickyContentRef}
         enabled={this.isStickyEnabled}
+        // We're passing rowData to ensure that sticky headers are updated when data changes
+        rowData={rowData}
         arg={index}
-        renderer={this.rowRendererWithIndex}
+        renderer={this.rowRendererSticky}
       />
     );
   };
@@ -693,7 +732,7 @@ class FlashList<T> extends React.PureComponent<
 
   private runAfterOnLoad = () => {
     if (this.props.estimatedItemSize === undefined) {
-      this.sizeWarningTimeoutId = setTimeout(() => {
+      this.itemSizeWarningTimeoutId = setTimeout(() => {
         const averageItemSize = Math.floor(
           this.state.layoutProvider.averageItemSize
         );
@@ -718,6 +757,13 @@ class FlashList<T> extends React.PureComponent<
     if (this.postLoadTimeoutId !== undefined) {
       clearTimeout(this.postLoadTimeoutId);
       this.postLoadTimeoutId = undefined;
+    }
+  };
+
+  private clearRenderSizeWarningTimeout = () => {
+    if (this.renderedSizeWarningTimeoutId !== undefined) {
+      clearTimeout(this.renderedSizeWarningTimeoutId);
+      this.renderedSizeWarningTimeoutId = undefined;
     }
   };
 
@@ -748,16 +794,39 @@ class FlashList<T> extends React.PureComponent<
     viewOffset?: number | undefined;
     viewPosition?: number | undefined;
   }) {
-    // known issue: no support for view offset/position
-    this.rlvRef?.scrollToIndex(params.index, Boolean(params.animated));
+    const layout = this.rlvRef?.getLayout(params.index);
+    const listSize = this.rlvRef?.getRenderedSize();
+
+    if (layout && listSize) {
+      const itemOffset = this.props.horizontal ? layout.x : layout.y;
+      const fixedDimension = this.props.horizontal
+        ? listSize.width
+        : listSize.height;
+      const itemSize = this.props.horizontal ? layout.width : layout.height;
+      const scrollOffset =
+        Math.max(
+          0,
+          itemOffset - (params.viewPosition ?? 0) * (fixedDimension - itemSize)
+        ) - (params.viewOffset ?? 0);
+      this.rlvRef?.scrollToOffset(
+        scrollOffset,
+        scrollOffset,
+        Boolean(params.animated),
+        true
+      );
+    }
   }
 
   public scrollToItem(params: {
     animated?: boolean | null | undefined;
     item: any;
     viewPosition?: number | undefined;
+    viewOffset?: number | undefined;
   }) {
-    this.rlvRef?.scrollToItem(params.item, Boolean(params.animated));
+    const index = this.props.data?.indexOf(params.item) ?? -1;
+    if (index >= 0) {
+      this.scrollToIndex({ ...params, index });
+    }
   }
 
   public scrollToOffset(params: {
@@ -790,11 +859,25 @@ class FlashList<T> extends React.PureComponent<
   }
 
   /**
+   * FlashList will skip using layout cache on next update. Can be useful when you know the layout will change drastically for example, orientation change when used as a carousel.
+   */
+  public clearLayoutCacheOnUpdate() {
+    this.state.layoutProvider.markExpired();
+  }
+
+  /**
    * Tells the list an interaction has occurred, which should trigger viewability calculations, e.g. if waitForInteractions is true and the user has not scrolled.
    * This is typically called by taps on items or by navigation actions.
    */
   public recordInteraction = () => {
     this.viewabilityManager.recordInteraction();
+  };
+
+  /**
+   * Retriggers viewability calculations. Useful to imperatively trigger viewability calculations.
+   */
+  public recomputeViewableItems = () => {
+    this.viewabilityManager.recomputeViewableItems();
   };
 }
 
